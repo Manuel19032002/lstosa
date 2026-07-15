@@ -275,7 +275,10 @@ def prepare_jobs(sequence_list):
 def sequence_filenames(sequence):
     """Build names of the script, veto and history files."""
     basename = f"sequence_{sequence.jobname}"
-    sequence.script = Path(options.directory) / f"{basename}.py"
+    script_basename = basename
+    if not options.no_dl1ab:
+        script_basename += "_2"
+    sequence.script = Path(options.directory) / f"{script_basename}.py"
     sequence.veto = Path(options.directory) / f"{basename}.veto"
     sequence.history = Path(options.directory) / f"{basename}.history"
 
@@ -884,4 +887,3 @@ def job_finished_in_timeout(job_id: str) -> bool:
         return True
     else:
         return False
-
