@@ -351,6 +351,7 @@ def scheduler_env_variables(sequence, scheduler="slurm"):
         f"--chdir={options.directory}",
         f"--output=log/Run{sequence.run:05d}.%4a_jobid_%A.out",
         f"--error=log/Run{sequence.run:05d}.%4a_jobid_%A.err",
+        "--exclude=cp05",
     ]
 
     # Get the number of subruns counting from 0.
