@@ -613,27 +613,8 @@ def _write_run_summary_line(run_dir: Path, tel: str, run: int, kind: str, status
         log.debug(f"Could not write run summary line for {kind} {tel} {run}")
 
 
-def _determine_array_job_status(sacct_df, jobname: str) -> Optional[int]:
-    # Keep previous implementation (already defined above) - duplicate removed to avoid redefinition.
-    # This placeholder will not be called (we use the other _determine_array_job_status earlier).
-    return None
 
 
-def _job_active_in_sacct(jobname_pattern: str) -> bool:
-    try:
-        sacct_output = run_sacct()
-        sacct_info = get_sacct_output(sacct_output)
-    except Exception:
-        log.warning("Could not query sacct; assuming job may be active to avoid duplicates.")
-        return True
-    jobs = sacct_info[sacct_info["JobName"] == jobname_pattern]
-    if jobs.empty:
-        return False
-    states = set(jobs["State"])
-    return any(s in ("RUNNING", "PENDING", "COMPLETING") for s in states)
-
-
-# Note: there was an earlier _job_active_in_sacct definition; kept one above. Continue with single_process.
 def single_process(telescope: str):
     sequencer_cli_parsing()  # ensure options set
     options.tel_id = telescope
