@@ -494,6 +494,37 @@ def _job_active_in_sacct(jobname_pattern: str) -> bool:
     return any(s in ("RUNNING", "PENDING", "COMPLETING") for s in states)
 
 
+
+def update_job_info(sequence_list):
+    """
+    Update SLURM information associated with each sequence.
+
+    Fills fields such as:
+        jobid
+        state
+        cputime
+        exit
+        tries
+        action
+    """
+
+    if options.test:
+        return
+
+    try:
+        sacct_output = run_sacct()
+        squeue_output = run_squeue()
+
+        set_queue_values(
+            sacct_info=get_sacct_output(sacct_output),
+            squeue_info=get_squeue_output(squeue_output),
+            sequence_list=sequence_list,
+        )
+
+    except Exception:
+        log.exception("Failed to update SLURM job information")
+
+
 def get_status_for_sequence(sequence, data_level) -> int:
     """
     Get number of files produced for a given sequence and data level.
@@ -637,6 +668,11 @@ def single_process(telescope: str):
     sequence_list = build_sequences(options.date)
     get_veto_list(sequence_list)
     get_closed_list(sequence_list)
+
+    try:
+        update_job_info(sequence_list)
+    except Exception:
+        log.exception("Could not update job info")
 
     # Update statuses from disk products (DL1, MUON, DATACHECK, DL2) and Cat-B
     try:
