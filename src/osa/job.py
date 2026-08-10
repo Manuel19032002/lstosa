@@ -1,4 +1,3 @@
-# src/osa/job.py
 """Functions to handle the interaction with the job scheduler."""
 
 import datetime
@@ -37,6 +36,7 @@ from osa.utils.utils import (
     date_to_iso,
     get_lstchain_version,
 )
+from osa.processing_plan import build_processing_plan
 
 log = myLogger(logging.getLogger(__name__))
 
@@ -310,6 +310,7 @@ def data_sequence_job_templates(sequence):
     """
     job_header = job_header_template(sequence)
     flat_date = date_to_dir(options.date)
+    plan = build_processing_plan(options.input_state)
 
     base_commandargs = ["datasequence"]
     if options.verbose:
@@ -326,14 +327,23 @@ def data_sequence_job_templates(sequence):
         (
             f"--date={date_to_iso(options.date)}",
             f"--prod-id={options.prod_id}",
-            f"--drs4-pedestal-file={sequence.drs4_file}",
-            f"--time-calib-file={sequence.time_calibration_file}",
-            f"--pedcal-file={sequence.calibration_file}",
-            f"--systematic-correction-file={sequence.systematic_correction_file}",
             f"--drive-file={get_drive_file(flat_date)}",
             f"--run-summary={get_summary_file(flat_date)}",
         )
     )
+
+    # Add calibration files only if needed
+    if plan.needs_calibration:
+        base_commandargs.extend(
+            (
+                f"--drs4-pedestal-file={sequence.drs4_file}",
+                f"--time-calib-file={sequence.time_calibration_file}",
+                f"--pedcal-file={sequence.calibration_file}",
+                f"--systematic-correction-file={sequence.systematic_correction_file}",
+            )
+        )
+    else:
+        log.info(f"Skipping calibration inputs for run {sequence.run} (already calibrated)")
 
     if not options.no_dl1ab:
         dl1_prod_id, dl1b_config = get_dl1_prod_id_and_config(sequence.run)
@@ -710,16 +720,25 @@ def submit_catb_pilot_script(run_id: int, dependency_jobid: str | None = None) -
 def submit_jobs(sequence_list, batch_command="sbatch"):
     """
     Submit the jobs to the cluster in three-phases per sequence:
-      - r0->dl1 array (if not already active)
+      - r0->dl1 array (if not already active) with PEDCALIB dependency if needed
       - catB/tailcuts per-run pilot dependent on r0 job (if needed)
       - dl1ab array dependent on catB pilot (or r0 if no catB)
     """
     job_list = []
     no_display_backend = "--export=ALL,MPLBACKEND=Agg"
+    plan = build_processing_plan(options.input_state)
+    parent_jobid = None  # Persist across loop iterations for PEDCALIB -> DATA dependency
 
     for sequence in sequence_list:
-        # PEDCALIB unchanged
+        # PEDCALIB sequence: optional if already calibrated
         if sequence.type == "PEDCALIB":
+            if not plan.needs_calibration:
+                log.info(
+                    f"Skipping PEDCALIB for run {sequence.run} "
+                    "(already calibrated)"
+                )
+                continue
+
             commandargs = [batch_command, "--parsable", no_display_backend]
             commandargs.append(str(sequence.script))
             if options.simulate or options.no_calib or options.test:
@@ -730,9 +749,11 @@ def submit_jobs(sequence_list, batch_command="sbatch"):
                     parent_jobid = sp.check_output(
                         commandargs, universal_newlines=True, shell=False
                     ).split()[0]
+                    log.info(f"Submitted PEDCALIB for run {sequence.run:05d} -> job {parent_jobid}")
                 except sp.CalledProcessError as error:
                     rc = error.returncode
                     log.exception(f"Command '{batch_command}' not found, error {rc}")
+                    parent_jobid = None
 
             log.debug(stringify(commandargs))
             job_list.append(sequence.script)
@@ -746,7 +767,14 @@ def submit_jobs(sequence_list, batch_command="sbatch"):
                 continue
 
             # 1) submit r0->dl1 array (if not active). Use sequence.script_r0 created by prepare_jobs.
-            cmd_r0 = [batch_command, "--parsable", no_display_backend, str(sequence.script_r0)]
+            cmd_r0 = [batch_command, "--parsable", no_display_backend]
+
+            # Add dependency on PEDCALIB if calibration is needed
+            if plan.needs_calibration and parent_jobid is not None:
+                log.debug(f"Adding dependency on calibration job {parent_jobid}")
+                cmd_r0.append(f"--dependency=afterok:{parent_jobid}")
+
+            cmd_r0.append(str(sequence.script_r0))
 
             if options.simulate:
                 log.info(f"SIMULATE would submit r0->dl1 array for run {sequence.run:05d}: {' '.join(cmd_r0)}")
@@ -965,3 +993,4 @@ def job_finished_in_timeout(job_id: str) -> bool:
         return True
     else:
         return False
+
