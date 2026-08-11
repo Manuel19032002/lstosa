@@ -365,7 +365,6 @@ def _write_catb_pilot_script(run_id: int, work_dir: Path, account: str, simulate
     log.debug(f"Wrote CatB pilot script {script_path}")
     return script_path
 
-dl1_prod_id, dl1b_config = get_dl1_prod_id_and_config(run_id)
 def _write_dl1ab_wrapper_script(
     run_id: int,
     work_dir: Path,
@@ -802,7 +801,8 @@ def single_process(telescope: str):
                 else:
                     log.info(f"No r0 job available and r0 not completed for run {run_id:05d}; skipping dl1ab.")
                     continue
-
+                 
+        dl1_prod_id, dl1b_config = get_dl1_prod_id_and_config(run_id)
         dl1ab_script = _write_dl1ab_wrapper_script(run_id, options.directory, account, options.simulate, seq.subruns, dl1_prod_id, dl1b_config)
         _sbatch_submit(dl1ab_script, dependency=dep_for_dl1, simulate=options.simulate)
 
