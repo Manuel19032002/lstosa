@@ -670,13 +670,13 @@ def single_process(telescope: str):
         jobname_r0 = f"{tel}_{run:05d}"
         status_r0 = _determine_array_job_status(sacct_info, jobname_r0)
         if status_r0 is not None:
-            _append_run_summary_line(run_dir, tel, run, "R0_ARRAY", status_r0)
+            _write_run_summary_line(run_dir, tel, run, "R0_ARRAY", status_r0)
 
         # dl1ab array summary
         jobname_dl1ab = f"{tel}_dl1ab_{run:05d}"
         status_dl1ab = _determine_array_job_status(sacct_info, jobname_dl1ab)
         if status_dl1ab is not None:
-            _append_run_summary_line(run_dir, tel, run, "DL1AB_ARRAY", status_dl1ab)
+            _write_run_summary_line(run_dir, tel, run, "DL1AB_ARRAY", status_dl1ab)
 
     account = cfg.get("SLURM", "ACCOUNT")
 
