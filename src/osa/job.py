@@ -258,6 +258,7 @@ def scheduler_env_variables(sequence, scheduler="slurm"):
         f"--chdir={options.directory}",
         f"--output=log/Run{sequence.run:05d}.%4a_jobid_%A.out",
         f"--error=log/Run{sequence.run:05d}.%4a_jobid_%A.err",
+        "--exclude=cp05",
     ]
 
     subruns = sequence.subruns - 1
@@ -346,7 +347,9 @@ def data_sequence_job_templates(sequence):
         )
     else:
         log.info(f"Skipping calibration inputs for run {sequence.run} (already calibrated)")
-
+    
+    log.info(f"options.no_dl1ab = {options.no_dl1ab}")
+    log.info(f"run = {sequence.run}")
     if not options.no_dl1ab:
         dl1_prod_id, dl1b_config = get_dl1_prod_id_and_config(sequence.run)
         sequence.dl1_prod_id = dl1_prod_id
