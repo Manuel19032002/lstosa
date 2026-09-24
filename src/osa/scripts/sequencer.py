@@ -85,14 +85,24 @@ def _sbatch_submit(script_path: Path, dependency: Optional[str] = None, simulate
         return None
 
 
-def _make_script_header(job_name: str, work_dir: Path, account: str, mem: str = "12G", array_spec: Optional[str] = None) -> str:
+def _make_script_header(
+    job_name: str,
+    work_dir: Path,
+    account: str,
+    job_type: str,
+    array_spec: Optional[str] = None,
+) -> str:
     """
-    Build SBATCH header. If array_spec is provided we use %a (task id) and %A (array id)
-    in output/error filenames to include subrun and array-job id.
+    Build SBATCH header.
     """
+
     header = "#!/usr/bin/env python3\n\n"
+
     header += f"#SBATCH --job-name={job_name}\n"
+    header += f"#SBATCH --time={cfg.get('SLURM', 'WALLTIME')}\n"
     header += f"#SBATCH --chdir={str(work_dir)}\n"
+    header += "#SBATCH --exclude=cp05\n"
+
     if array_spec:
         header += f"#SBATCH --array={array_spec}\n"
         header += f"#SBATCH --output=log/{job_name}.%a_jobid_%A.out\n"
@@ -100,10 +110,20 @@ def _make_script_header(job_name: str, work_dir: Path, account: str, mem: str = 
     else:
         header += f"#SBATCH --output=log/{job_name}_%j.out\n"
         header += f"#SBATCH --error=log/{job_name}_%j.err\n"
-    header += f"#SBATCH --account={account}\n"
-    header += f"#SBATCH --mem={mem}\n\n"
-    return header
 
+    header += (
+        f"#SBATCH --partition="
+        f"{cfg.get('SLURM', f'PARTITION_{job_type}')}\n"
+    )
+
+    header += (
+        f"#SBATCH --mem-per-cpu="
+        f"{cfg.get('SLURM', f'MEMSIZE_{job_type}')}\n"
+    )
+
+    header += f"#SBATCH --account={cfg.get('SLURM', 'ACCOUNT')}\n"
+
+    return header
 
 def format_sequence_table(sequence_list) -> str:
     """
@@ -365,14 +385,19 @@ def _write_catb_pilot_script(run_id: int, work_dir: Path, account: str, simulate
     log.debug(f"Wrote CatB pilot script {script_path}")
     return script_path
 
+
+
+
+
+
+
+
 def _write_dl1ab_wrapper_script(
     run_id: int,
     work_dir: Path,
     account: str,
     simulate: bool,
     subruns: int,
-    dl1_prod_id: str,
-    dl1b_config: str,
 ) -> Path:
     """Write dl1ab array script."""
 
@@ -403,7 +428,21 @@ def _write_dl1ab_wrapper_script(
     content += "import os\n"
     content += "import subprocess\n"
     content += "import sys\n"
-    content += "import tempfile\n\n"
+    content += "import tempfile\n"
+    content += "from osa.configs import options\n"
+    content += "from osa.configs.config import cfg\n"
+    content += "from osa.paths import get_dl1_prod_id_and_config\n\n"
+
+    # Load the same cfg used by the sequencer
+    content += f"cfg.read({str(Path(options.configfile).resolve())!r})\n"
+
+    # Restore required options
+    content += f"options.tel_id = {options.tel_id!r}\n"
+    content += f"options.prod_id = {options.prod_id!r}\n"
+    content += f"options.input_state = {options.input_state!r}\n\n"
+
+    content += f"run_id = {run_id}\n"
+    content += "dl1_prod_id, dl1b_config = get_dl1_prod_id_and_config(run_id)\n\n"
 
     content += "if 'SLURM_ARRAY_TASK_ID' in os.environ:\n"
     content += "    subruns = int(os.getenv('SLURM_ARRAY_TASK_ID'))\n"
@@ -431,8 +470,8 @@ def _write_dl1ab_wrapper_script(
     content += f"        '--input-state={options.input_state}',\n"
     content += f"        '--date={date_to_iso(options.date)}',\n"
     content += f"        '--prod-id={options.prod_id}',\n"
-    content += f"        '--dl1b-config={dl1b_config}',\n"
-    content += f"        '--dl1-prod-id={dl1_prod_id}',\n"
+    content += "        f'--dl1b-config={dl1b_config}',\n"
+    content += "        f'--dl1-prod-id={dl1_prod_id}',\n"
     content += f"        f'{run_id:05d}.{{subruns:04d}}',\n"
     content += f"        {options.tel_id!r}\n"
 
@@ -449,6 +488,10 @@ def _write_dl1ab_wrapper_script(
     log.debug(f"Wrote dl1ab wrapper script {script_path}")
 
     return script_path
+
+
+
+
 
 
 
@@ -829,8 +872,8 @@ def single_process(telescope: str):
                     log.info(f"No r0 job available and r0 not completed for run {run_id:05d}; skipping dl1ab.")
                     continue
                  
-        dl1_prod_id, dl1b_config = get_dl1_prod_id_and_config(run_id)
-        dl1ab_script = _write_dl1ab_wrapper_script(run_id, options.directory, account, options.simulate, seq.subruns, dl1_prod_id, dl1b_config)
+        #dl1_prod_id, dl1b_config = get_dl1_prod_id_and_config(run_id)
+        dl1ab_script = _write_dl1ab_wrapper_script(run_id, options.directory, account, options.simulate, seq.subruns)
         _sbatch_submit(dl1ab_script, dependency=dep_for_dl1, simulate=options.simulate)
 
     # At the end, save a textual snapshot of the sequencer table
