@@ -2,7 +2,6 @@ import datetime
 import os
 import subprocess as sp
 from pathlib import Path
-from textwrap import dedent
 
 import pytest
 import yaml
