@@ -1,6 +1,3 @@
-# ============================================================
-# src/osa/tests/test_jobs.py
-# ============================================================
 import os
 from pathlib import Path
 from textwrap import dedent
