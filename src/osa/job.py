@@ -70,7 +70,9 @@ __all__ = [
     "job_finished_in_timeout",
     # history helpers
     "historylevel",
-    "history_step_completed",
+    "r0_job_completed",
+    "run_fully_processed",
+    "CAT_A_DATACHECK_DIR",
     "are_all_jobs_correctly_finished",
     # misc
     "catb_tailcuts_needed",
@@ -81,6 +83,10 @@ __all__ = [
 TAB = "\t".expandtabs(4)
 SHEBANG = "#!/usr/bin/env python3"
 PYTHON_IMPORTS = "import os\nimport subprocess\nimport sys\nimport tempfile\n"
+
+# Subdirectory (inside options.directory) with the datacheck of the DL1a files (cat A),
+# produced in the same job as r0->dl1.
+CAT_A_DATACHECK_DIR = "datacheck_cat_a"
 
 ACTIVE_STATES = {"RUNNING", "PENDING", "COMPLETING"}
 BAD_STATES = {"FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY"}
@@ -170,13 +176,42 @@ def are_all_jobs_correctly_finished(sequence_list):
     return flag
 
 
+def _read_history_entries(history_file: Path) -> list:
+    """
+    Parse a history file into a chronological list of (program, prod_id, exit_status).
+    Malformed lines are skipped.
+    """
+    entries = []
+    for line in history_file.read_text().splitlines():
+        words = line.split()
+        if not words:
+            continue
+        try:
+            entries.append((words[1], words[2], int(words[-1])))
+        except (IndexError, ValueError):
+            log.warning(f"Malformed line in history file {history_file}: {line!r}")
+    return entries
+
+
 def historylevel(history_file: Path, data_type: str):
     """
     Returns the level from which the analysis should begin and
     the rc of the last executable given a certain history file.
+
+    Levels of a DATA sequence:
+        4: r0->dl1 pending
+        3: datacheck of the DL1a file (cat A) pending
+        2: dl1ab pending
+        1: datacheck of the DL1b file pending
+        0: everything done
+    Levels of a PEDCALIB sequence: 2 (drs4 baseline), 1 (charge calibration), 0 (done).
+
+    `lstchain_check_dl1` appears twice in the history of a DATA subrun (cat A first,
+    DL1b after dl1ab). Both lines are identical, so they are told apart by order:
+    a check_dl1 before any dl1ab line is the cat A datacheck.
     """
     if data_type == "DATA":
-        level = 3
+        level = 4
     elif data_type == "PEDCALIB":
         level = 2
     else:
@@ -184,61 +219,85 @@ def historylevel(history_file: Path, data_type: str):
 
     exit_status = 0
 
-    if history_file.exists():
-        if data_type == "DATA":
-            match = re.search(r"sequence_LST1_(\d+)\.\d+", str(history_file))
-        elif data_type == "PEDCALIB":
-            match = re.search(r"sequence_LST1_(\d+)\.history", str(history_file))
-        run_id = int(match.group(1))
-        for line in history_file.read_text().splitlines():
-            words = line.split()
-            try:
-                program = words[1]
-                prod_id = words[2]
-                exit_status = int(words[-1])
-                log.debug(f"{program}, finished with error {exit_status} and prod ID {prod_id}")
-            except (IndexError, ValueError) as err:
-                log.exception(f"Malformed history file {history_file}, {err}")
-            else:
-                # Calibration sequence
-                if program == cfg.get("lstchain", "drs4_baseline"):
-                    level = 1 if exit_status == 0 else 2
-                elif program == cfg.get("lstchain", "charge_calibration"):
-                    level = 0 if exit_status == 0 else 1
-                # Data sequence
-                elif program == cfg.get("lstchain", "r0_to_dl1"):
-                    level = 2 if exit_status == 0 else 3
-                elif program == cfg.get("lstchain", "dl1ab"):
-                    dl1_prod_id = get_dl1_prod_id_and_config(run_id)[0]
-                    if (exit_status == 0) and (prod_id == dl1_prod_id):
-                        log.debug(f"DL1ab prod ID: {dl1_prod_id} already produced")
-                        level = 1
-                    else:
-                        level = 2
-                        log.debug(f"DL1ab prod ID: {dl1_prod_id} not produced yet")
-                        break
-                elif program == cfg.get("lstchain", "check_dl1"):
-                    level = 0 if exit_status == 0 else 1
+    if not history_file.exists():
+        return level, exit_status
 
-                else:
-                    log.warning(f"Program name not identified: {program}")
+    run_id = None
+    if data_type == "DATA":
+        run_id = int(re.search(r"sequence_LST1_(\d+)\.\d+", str(history_file)).group(1))
+
+    dl1ab_seen = False
+    for program, prod_id, exit_status in _read_history_entries(history_file):
+        log.debug(f"{program}, finished with error {exit_status} and prod ID {prod_id}")
+
+        # Calibration sequence
+        if program == cfg.get("lstchain", "drs4_baseline"):
+            level = 1 if exit_status == 0 else 2
+        elif program == cfg.get("lstchain", "charge_calibration"):
+            level = 0 if exit_status == 0 else 1
+        # Data sequence
+        elif program == cfg.get("lstchain", "r0_to_dl1"):
+            level = 3 if exit_status == 0 else 4
+        elif program == cfg.get("lstchain", "dl1ab"):
+            dl1ab_seen = True
+            dl1_prod_id = get_dl1_prod_id_and_config(run_id)[0]
+            if (exit_status == 0) and (prod_id == dl1_prod_id):
+                log.debug(f"DL1ab prod ID: {dl1_prod_id} already produced")
+                level = 1
+            else:
+                level = 2
+                log.debug(f"DL1ab prod ID: {dl1_prod_id} not produced yet")
+                break
+        elif program == cfg.get("lstchain", "check_dl1"):
+            if dl1ab_seen:
+                level = 0 if exit_status == 0 else 1
+            elif level == 3:
+                # datacheck of the DL1a file (cat A), right after r0->dl1
+                level = 2 if exit_status == 0 else 3
+        else:
+            log.warning(f"Program name not identified: {program}")
 
     return level, exit_status
 
 
-def history_step_completed(run_id: int, step: str) -> bool:
+def _r0_stage_ok(entries: list) -> bool:
     """
-    Return True if *every* per-subrun history file of the run contains the given
-    step finished with exit code 0.
+    The first job (r0->dl1 + cat A datacheck) is completed when r0->dl1 finished
+    correctly and was followed by a correct check_dl1. Histories where dl1ab was
+    already attempted after r0->dl1 (runs processed before the cat A datacheck
+    existed) also count as completed.
+    """
+    r0_to_dl1 = cfg.get("lstchain", "r0_to_dl1")
+    check_dl1 = cfg.get("lstchain", "check_dl1")
+    dl1ab = cfg.get("lstchain", "dl1ab")
 
-    Parameters
-    ----------
-    run_id : int
-    step : str
-        Key of the [lstchain] config section holding the program name,
-        e.g. "r0_to_dl1" or "check_dl1".
-    """
-    program = cfg.get("lstchain", step)
+    r0_done = False
+    for program, _, rc in entries:
+        if program == r0_to_dl1 and rc == 0:
+            r0_done = True
+        elif r0_done and program == check_dl1 and rc == 0:
+            return True
+        elif r0_done and program == dl1ab:
+            return True
+    return False
+
+
+def _fully_processed(entries: list) -> bool:
+    """A run is fully processed when a correct check_dl1 follows a correct dl1ab."""
+    dl1ab = cfg.get("lstchain", "dl1ab")
+    check_dl1 = cfg.get("lstchain", "check_dl1")
+
+    dl1ab_done = False
+    for program, _, rc in entries:
+        if program == dl1ab and rc == 0:
+            dl1ab_done = True
+        elif dl1ab_done and program == check_dl1 and rc == 0:
+            return True
+    return False
+
+
+def _all_histories_satisfy(run_id: int, predicate) -> bool:
+    """True if the run has history files and `predicate(entries)` holds for every subrun."""
     history_files = sorted(
         Path(options.directory).glob(f"sequence_{options.tel_id}_{run_id:05d}.*.history")
     )
@@ -247,20 +306,22 @@ def history_step_completed(run_id: int, step: str) -> bool:
 
     for history_file in history_files:
         try:
-            lines = history_file.read_text().splitlines()
+            entries = _read_history_entries(history_file)
         except OSError:
             return False
-
-        found = False
-        for line in lines:
-            words = line.split()
-            if len(words) > 1 and words[1] == program and words[-1] == "0":
-                found = True
-                break
-        if not found:
+        if not predicate(entries):
             return False
-
     return True
+
+
+def r0_job_completed(run_id: int) -> bool:
+    """True if, for every subrun, the r0->dl1 job (r0->dl1 + cat A datacheck) finished correctly."""
+    return _all_histories_satisfy(run_id, _r0_stage_ok)
+
+
+def run_fully_processed(run_id: int) -> bool:
+    """True if, for every subrun, dl1ab and the DL1b datacheck finished correctly."""
+    return _all_histories_satisfy(run_id, _fully_processed)
 
 
 def sequence_filenames(sequence):
@@ -384,21 +445,43 @@ def job_header_template(sequence) -> str:
 
 def set_cache_dirs():
     """
-    Export cache directories for the jobs provided they are defined in the config file.
+    Export cache directories for the jobs provided they
+    are defined in the config file.
+
+    Returns
+    -------
+    content: string
+        String with the command to export the cache directories
     """
+
     ctapipe_cache = cfg.get("CACHE", "CTAPIPE_CACHE")
     ctapipe_svc_path = cfg.get("CACHE", "CTAPIPE_SVC_PATH")
     mpl_config_path = cfg.get("CACHE", "MPLCONFIGDIR")
 
     content = []
+
+    # Astropy shared config/cache
+    content.append(
+        "os.environ['XDG_CONFIG_HOME'] = '/fefs/aswg/data/aux'"
+    )
+    content.append(
+        "os.environ['XDG_CACHE_HOME'] = '/fefs/aswg/data/aux'"
+    )
+
     if ctapipe_cache:
-        content.append(f"os.environ['CTAPIPE_CACHE'] = '{ctapipe_cache}'")
+        content.append(
+            f"os.environ['CTAPIPE_CACHE'] = '{ctapipe_cache}'"
+        )
 
     if ctapipe_svc_path:
-        content.append(f"os.environ['CTAPIPE_SVC_PATH'] = '{ctapipe_svc_path}'")
+        content.append(
+            f"os.environ['CTAPIPE_SVC_PATH'] = '{ctapipe_svc_path}'"
+        )
 
     if mpl_config_path:
-        content.append(f"os.environ['MPLCONFIGDIR'] = '{mpl_config_path}'")
+        content.append(
+            f"os.environ['MPLCONFIGDIR'] = '{mpl_config_path}'"
+        )
 
     return "\n".join(content)
 
@@ -789,7 +872,7 @@ def _submit_data_sequence(
 ) -> list:
     """
     Three-phase submission for a DATA run:
-      1) r0->dl1 array (if not completed / not active)
+      1) r0->dl1 + cat A datacheck array (if not completed / not active)
       2) CatB/tailcuts pilot, dependent on r0 (if needed)
       3) dl1ab array, dependent on the pilot (or on r0 if no pilot is needed)
     Returns the list of job ids submitted (or found active) for this run.
@@ -801,10 +884,10 @@ def _submit_data_sequence(
     log.info(f"Run {run_id:05d} ({sequence.subruns} subruns): checking which jobs are needed.")
 
     # 1) r0 -> dl1
-    r0_done = history_step_completed(run_id, "r0_to_dl1")
+    r0_done = r0_job_completed(run_id)
     jobid_r0 = None
     if r0_done:
-        summary["r0->dl1"] = "already completed (history), not submitted"
+        summary["r0->dl1+DC-A"] = "already completed (r0->dl1 + cat A datacheck in history), not submitted"
     else:
         jobid_r0, outcome = _submit_unless_active(
             r0_jobname(run_id),
@@ -812,7 +895,9 @@ def _submit_data_sequence(
             dependency=calib_jobid,
             batch_command=batch_command,
         )
-        summary["r0->dl1"] = _describe(outcome, jobid_r0, calib_jobid if outcome == "submitted" else None)
+        summary["r0->dl1+DC-A"] = _describe(
+            outcome, jobid_r0, calib_jobid if outcome == "submitted" else None
+        )
         job_ids.append(jobid_r0)
 
     # 2) CatB / tailcuts pilot
@@ -840,7 +925,7 @@ def _submit_data_sequence(
 
     # 3) dl1ab
     dl1ab_name = dl1ab_jobname(run_id)
-    if history_step_completed(run_id, "check_dl1"):
+    if run_fully_processed(run_id):
         summary["dl1ab"] = "run already fully processed (check_dl1 ok), not submitted"
     elif job_is_active(dl1ab_name):
         summary["dl1ab"] = _describe("active", get_active_jobid(dl1ab_name))
