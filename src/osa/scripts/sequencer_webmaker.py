@@ -19,8 +19,8 @@ from osa.job import r0_job_completed, run_fully_processed
 from osa.nightsummary.nightsummary import run_summary_table
 from osa.utils.cliopts import sequencer_webmaker_argparser
 from osa.utils.logging import myLogger
-from osa.utils.utils import is_day_closed, date_to_iso, date_to_dir, get_major_version, get_lstchain_version
-from osa.paths import all_dl1ab_config_files_exist, analysis_path
+from osa.utils.utils import is_day_closed, date_to_iso, date_to_dir, get_lstchain_version
+from osa.paths import get_major_version, all_dl1ab_config_files_exist, analysis_path
 
 log = myLogger(logging.getLogger())
 
