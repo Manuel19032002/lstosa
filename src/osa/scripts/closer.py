@@ -20,7 +20,8 @@ from osa.job import (
     are_all_jobs_correctly_finished, 
     save_job_information, 
     run_sacct, 
-    get_closer_sacct_output
+    get_closer_sacct_output,
+    CAT_A_DATACHECK_DIR,
 )
 from osa.nightsummary.extract import extract_runs, extract_sequences
 from osa.nightsummary.nightsummary import run_summary_table
@@ -58,6 +59,7 @@ __all__ = [
     "merge_files",
     "daily_datacheck",
     "daily_longterm_cmd",
+    "daily_longterm_cat_a_cmd",
     "observation_finished",
 ]
 
@@ -208,6 +210,10 @@ def post_process(seq_tuple):
 
                 if cfg.getboolean("lstchain", "create_longterm_symlink"):
                     create_longterm_symlink(cherenkov_job_id)
+
+                # Longterm of the Cat-A datacheck (per-run files merged earlier
+                # by the CatB/tailcuts pipeline).
+                daily_datacheck(daily_longterm_cat_a_cmd())
 
         if not options.test:
             time.sleep(600)
@@ -620,6 +626,35 @@ def daily_longterm_cmd(parent_job_ids: List[str]) -> List[str]:
         "-o",
         "log/longterm_daily_%j.log",
         f"--dependency=afterok:{','.join(parent_job_ids)}",
+        "lstchain_longterm_dl1_check",
+        f"--input-dir={datacheck_dir}",
+        f"--output-file={longterm_output_file}",
+        f"--muons-dir={muons_dir}",
+        "--batch",
+    ]
+
+
+def daily_longterm_cat_a_cmd() -> List[str]:
+    """
+    Build the daily longterm command for the Cat-A datacheck.
+
+    The per-run Cat-A datacheck files are already merged by the CatB/tailcuts
+    pipeline earlier in the night, in `options.directory / CAT_A_DATACHECK_DIR`.
+    """
+    nightdir = date_to_dir(options.date)
+    datacheck_dir = Path(options.directory) / CAT_A_DATACHECK_DIR
+    muons_dir = Path(options.directory)
+    longterm_output_file = datacheck_dir / f"DL1_datacheck_cat_A_{nightdir}.h5"
+    slurm_account = cfg.get("SLURM", "ACCOUNT")
+
+    return [
+        "sbatch",
+        "--parsable",
+        f"--account={slurm_account}",
+        "-D",
+        options.directory,
+        "-o",
+        "log/longterm_daily_cat_a_%j.log",
         "lstchain_longterm_dl1_check",
         f"--input-dir={datacheck_dir}",
         f"--output-file={longterm_output_file}",
