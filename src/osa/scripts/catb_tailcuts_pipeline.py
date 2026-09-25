@@ -18,7 +18,6 @@ from osa.utils.logging import myLogger
 from osa.utils.utils import (
     get_calib_filters,
     get_lstchain_version,
-    date_to_dir
 )
 
 # TODO:
