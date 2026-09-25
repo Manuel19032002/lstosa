@@ -1,3 +1,6 @@
+# ============================================================
+# src/osa/tests/test_jobs.py
+# ============================================================
 import os
 from pathlib import Path
 from textwrap import dedent
@@ -59,11 +62,8 @@ def test_sequence_filenames(running_analysis_dir, sequence_list):
 
 
 def test_scheduler_env_variables(sequence_list, running_analysis_dir):
-    """`scheduler_env_variables` now takes (job_name, job_type, array_spec=None, scheduler='slurm')
-    and adds `--exclude=cp05`. Log-file pattern depends on whether array_spec is given."""
     from osa.job import scheduler_env_variables
 
-    # PEDCALIB sequence: no array
     first_sequence = sequence_list[0]
     env_variables = scheduler_env_variables(first_sequence.jobname, first_sequence.type)
     assert env_variables == [
@@ -78,7 +78,6 @@ def test_scheduler_env_variables(sequence_list, running_analysis_dir):
         f'#SBATCH --account={cfg.get("SLURM", "ACCOUNT")}',
     ]
 
-    # DATA sequence: with array
     second_sequence = sequence_list[1]
     env_variables = scheduler_env_variables(second_sequence.jobname, second_sequence.type, "0-10")
     assert env_variables == [
@@ -96,8 +95,6 @@ def test_scheduler_env_variables(sequence_list, running_analysis_dir):
 
 
 def test_job_header_template(sequence_list, running_analysis_dir):
-    """Extract and check the header for the first two sequences.
-    Shebang is now '#!/usr/bin/env python3' and includes --exclude=cp05."""
     from osa.job import job_header_template
 
     options.test = False
@@ -141,16 +138,6 @@ def test_job_header_template(sequence_list, running_analysis_dir):
     assert header == output_string2
 
 
-# ------------------------------------------------------------------
-# NOTE: `data_sequence_job_template` no longer exists. It was split into
-# `write_r0_script` (r0->dl1 + cat-A datacheck) and `write_dl1ab_script`
-# (dl1ab, config resolved at job runtime). Both depend on
-# `osa.processing_plan.build_processing_plan()`, which I don't have the
-# source of, so I can't reconstruct the exact rendered text (calibration
-# args, pedestal-ids arg, etc.) with confidence. These are rewritten as
-# structural tests meanwhile - please send osa/processing_plan.py so I can
-# give you exact string-equality tests like the ones above.
-# ------------------------------------------------------------------
 def test_create_job_template_scheduler(
     sequence_list,
     drs4_time_calibration_files,
@@ -196,7 +183,17 @@ def test_create_job_template_local(
     dl1b_config_files,
     rf_models,
 ):
-    """Check the job file in local (test) mode - no SBATCH header expected."""
+    """Check the job file in local (test) mode.
+
+    IMPORTANT FIX from previous version: `options.test` does NOT remove the
+    SBATCH header (write_r0_script always calls _sbatch_header unconditionally).
+    It only affects whether `set_cache_dirs()` is prepended in the script
+    prologue (see `_render_script`: `if not options.test: ... cache = set_cache_dirs()`).
+    My earlier assertion `assert '#SBATCH' not in content` was wrong - that's
+    what broke this test in the last run. Fixed below, plus added checks for
+    the real argument order confirmed from job.py's write_r0_script:
+    drs4-pedestal-file -> time-calib-file -> pedcal-file -> systematic-correction-file.
+    """
     from osa.job import write_r0_script
 
     for file in drs4_time_calibration_files:
@@ -215,16 +212,29 @@ def test_create_job_template_local(
     content = script_path.read_text()
 
     assert content.startswith("#!/usr/bin/env python3")
-    assert "#SBATCH" not in content
+    assert "#SBATCH --job-name=LST1_01807" in content
+    assert "#SBATCH --array=0-10" in content
     assert "'datasequence'" in content
     assert "'--no-dl1ab'" in content
+    assert "--date=2020-01-17" in content
+    assert "--prod-id=v0.1.0" in content
+    assert "'LST1'" in content
+
+    # test mode -> no cache-dirs prologue prepended
+    assert "os.environ['CTAPIPE_CACHE']" not in content
+
+    # confirmed argument order from write_r0_script
+    idx_drs4 = content.index("--drs4-pedestal-file=")
+    idx_time = content.index("--time-calib-file=")
+    idx_pedcal = content.index("--pedcal-file=")
+    idx_sys = content.index("--systematic-correction-file=")
+    assert idx_drs4 < idx_time < idx_pedcal < idx_sys
 
     options.simulate = True
 
 
 def test_create_job_scheduler_calibration(sequence_list):
-    """Check the pilot job file for the calibration pipeline.
-    Confirmed against the real output captured in the failing CI run."""
+    """Confirmed against the real captured output."""
     from osa.job import calibration_sequence_job_template
 
     options.test = True
@@ -271,8 +281,6 @@ def test_create_job_scheduler_calibration(sequence_list):
 
 
 def test_set_cache_dirs():
-    """XDG_CONFIG_HOME / XDG_CACHE_HOME are now hardcoded to /fefs/aswg/data/aux,
-    not read from the [CACHE] section of the config."""
     from osa.job import set_cache_dirs
 
     cache = set_cache_dirs()
@@ -288,9 +296,6 @@ def test_set_cache_dirs():
 
 
 def test_calibration_history_level():
-    """`check_history_level` no longer exists in osa.job; `historylevel` is the
-    current equivalent for calibration histories (this is effectively the
-    same check already covered by test_historylevel's PEDCALIB case)."""
     from osa.job import historylevel
 
     level, exit_status = historylevel(calibration_history_file, "PEDCALIB")
@@ -300,13 +305,11 @@ def test_calibration_history_level():
 
 @pytest.fixture
 def mock_sacct_output():
-    """Mock output of sacct to be able to use it in get_squeue_output function."""
     return Path("./extra") / "sacct_output.csv"
 
 
 @pytest.fixture
 def mock_squeue_output():
-    """Mock output of squeue to be able to use it in get_squeue_output function."""
     return Path("./extra") / "squeue_output.csv"
 
 
