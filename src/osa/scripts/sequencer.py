@@ -24,6 +24,7 @@ from osa import job as job_module
 from osa.configs import options
 from osa.configs.config import cfg
 from osa.job import (
+    CAT_A_DATACHECK_DIR,
     array_job_status,
     catb_jobname,
     dl1ab_jobname,
@@ -72,7 +73,7 @@ def format_sequence_table(sequence_list) -> str:
         "Exit",
     ]
     if options.tel_id in ["LST1", "LST2"]:
-        header.extend(("DL1%", "MUONS%", "CAT-B", "DL1AB%", "DATACHECK%", "DL2%"))
+        header.extend(("DL1%", "DC-A%", "MUONS%", "CAT-B", "DL1AB%", "DATACHECK%", "DL2%"))
     matrix = [header]
     for sequence in sequence_list:
         row_list = [
@@ -91,11 +92,12 @@ def format_sequence_table(sequence_list) -> str:
             getattr(sequence, "exit", None),
         ]
         if getattr(sequence, "type", None) in ["DRS4", "PEDCALIB"]:
-            row_list.extend((None, None, None, None, None, None))
+            row_list.extend((None, None, None, None, None, None, None))
         elif getattr(sequence, "type", None) == "DATA":
             row_list.extend(
                 (
                     getattr(sequence, "dl1status", None),
+                    getattr(sequence, "datacheck_a_status", None),
                     getattr(sequence, "muonstatus", None),
                     getattr(sequence, "catbstatus", None),
                     getattr(sequence, "dl1abstatus", None),
@@ -143,7 +145,8 @@ def get_status_for_sequence(sequence, data_level) -> int:
     ----------
     sequence
     data_level : str
-        Options: 'CALIB', 'DL1', 'DL1AB', 'DATACHECK', 'MUON' or 'DL2'
+        Options: 'CALIB', 'DL1', 'DATACHECK_A' (cat A datacheck of the DL1a files),
+        'DL1AB', 'DATACHECK', 'MUON' or 'DL2'
 
     Returns
     -------
@@ -153,6 +156,9 @@ def get_status_for_sequence(sequence, data_level) -> int:
         if data_level == "DL1AB":
             directory = options.directory / sequence.dl1_prod_id
             files = list(directory.glob(f"dl1_LST-1*{sequence.run}*.h5"))
+        elif data_level == "DATACHECK_A":
+            directory = options.directory / CAT_A_DATACHECK_DIR
+            files = list(directory.glob(f"datacheck_dl1_LST-1*{sequence.run}*.0*.h5"))
         elif data_level == "DL2":
             directory = destination_dir(concept="DL2", create_dir=False, dl2_prod_id=sequence.dl2_prod_id)
             files = list(directory.glob(f"dl2_LST-1*{sequence.run}*.h5"))
@@ -221,7 +227,7 @@ def _ensure_dl1_prod_id(seq) -> None:
 def update_sequence_status(seq_list):
     """
     Update the percentage of files produced of each type (calibration, DL1,
-    DATACHECK, MUON and DL2) for every run considering the total number of subruns.
+    cat A datacheck, DL1AB, DATACHECK, MUON and DL2) for every run considering the total number of subruns.
 
     Parameters
     ----------
@@ -235,6 +241,7 @@ def update_sequence_status(seq_list):
             elif seq.type == "DATA":
                 _ensure_dl1_prod_id(seq)
                 seq.dl1status = _percentage(get_status_for_sequence(seq, "DL1"), seq.subruns)
+                seq.datacheck_a_status = _percentage(get_status_for_sequence(seq, "DATACHECK_A"), seq.subruns)
                 seq.dl1abstatus = _percentage(get_status_for_sequence(seq, "DL1AB"), seq.subruns)
                 seq.datacheckstatus = _percentage(get_status_for_sequence(seq, "DATACHECK"), seq.subruns)
                 seq.muonstatus = _percentage(get_status_for_sequence(seq, "MUON"), seq.subruns)
