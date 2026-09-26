@@ -172,6 +172,7 @@ def calibration_pipeline_cliparsing():
     options.prod_id = opts.prod_id
     options.tel_id = opts.tel_id
     options.simulate = opts.simulate
+    options.test = opts.test
 
     # setting the default date and directory if needed
     options.date = set_default_date_if_needed()
