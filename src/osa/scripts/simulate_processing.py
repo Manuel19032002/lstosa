@@ -14,7 +14,7 @@ import yaml
 
 from osa.configs import options
 from osa.configs.config import cfg
-from osa.job import calibration_sequence_job_template, data_sequence_job_template
+from osa.job import calibration_sequence_job_template, write_r0_script
 from osa.nightsummary.extract import build_sequences
 from osa.provenance.utils import get_log_config
 from osa.utils.cliopts import simprocparsing
