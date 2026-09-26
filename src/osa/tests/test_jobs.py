@@ -1,6 +1,3 @@
-# ============================================================
-# src/osa/tests/test_jobs.py
-# ============================================================
 import os
 from pathlib import Path
 from textwrap import dedent
@@ -234,7 +231,8 @@ def test_create_job_template_local(
 
 
 def test_create_job_scheduler_calibration(sequence_list):
-    """Confirmed against the real captured output."""
+    """Confirmed against the real captured output. Includes '-t' now that
+    calibration_sequence_job_template correctly propagates options.test."""
     from osa.job import calibration_sequence_job_template
 
     options.test = True
@@ -265,6 +263,7 @@ def test_create_job_scheduler_calibration(sequence_list):
         os.environ['NUMBA_CACHE_DIR'] = tmpdirname
         proc = subprocess.run([
             'calibration_pipeline',
+            '-t',
             '--config',
             '{DEFAULT_CFG}',
             '--date=2020-01-17',
