@@ -123,7 +123,7 @@ def format_sequence_table(sequence_list) -> str:
     for row in matrix:
         stringrow = ""
         for j, col in enumerate(row):
-            col_str = "" if col is None else str(col)
+            col_str = "None" if col is None else str(col)
             lpad = (max_field_length[j] - len(col_str)) * " "
             # right-align integers
             if isinstance(col, int):
