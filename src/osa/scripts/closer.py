@@ -29,7 +29,9 @@ from osa.paths import (
     destination_dir,
     create_datacheck_symlinks,
     create_longterm_symlink,
-    dl1_datacheck_longterm_file_exits
+    dl1_datacheck_longterm_file_exits,
+    get_dl1_prod_id_and_config,
+    get_dl2_prod_id,
 )
 from osa.raw import is_raw_data_available
 from osa.report import start
@@ -45,6 +47,7 @@ from osa.utils.utils import (
     create_lock,
     gettag,
     date_to_iso,
+    get_RF_model,
 )
 
 __all__ = [
@@ -157,8 +160,33 @@ def ask_for_closing():
                 log.warning("Answer not understood, please type y or n")
                 answer_check = False
 
+
+def _ensure_run_prod_ids(seq_list):
+    """
+    Populate dl1_prod_id / dl1b_config / dl2_prod_id / rf_model for every DATA
+    sequence in seq_list.
+
+    closer.py builds its own sequence_list (via is_finished_check ->
+    extract_sequences), separately from sequencer.py's, and never resolves
+    these attributes before using them in post_process_files, merge_files,
+    extract_provenance and dl1_to_dl2 (all of which read sequence.dl1_prod_id
+    / sequence.dl2_prod_id / sequence.rf_model). This mirrors what
+    sequencer.py's _ensure_dl1_prod_id does for its own sequence list.
+    """
+    for sequence in seq_list:
+        if sequence.type != "DATA":
+            continue
+        try:
+            sequence.dl1_prod_id, sequence.dl1b_config = get_dl1_prod_id_and_config(sequence.run)
+            sequence.dl2_prod_id = get_dl2_prod_id(sequence.run)
+            sequence.rf_model = get_RF_model(sequence.run)
+        except Exception:
+            log.exception(f"Could not resolve prod ids for run {sequence.run}")
+
+
 def post_process(seq_tuple):
     seq_list = seq_tuple[1]
+    _ensure_run_prod_ids(seq_list)
 
     if dl1_datacheck_longterm_file_exits() and not options.test:
         if cfg.getboolean("lstchain", "create_longterm_symlink"):
