@@ -958,8 +958,8 @@ def submit_jobs(sequence_list, batch_command: str = "sbatch") -> list:
       - PEDCALIB: only if the processing plan needs calibration
       - DATA: r0->dl1 array -> CatB/tailcuts pilot -> dl1ab array
 
-    Honors --simulate, --test and --force-submit. Returns the list of job ids
-    submitted (or found already active) during this call.
+    Honors --simulate, --test, --no-submit and --force-submit. Returns the
+    list of job ids submitted (or found already active) during this call.
     """
     plan = build_processing_plan(options.input_state)
     calib_jobid = None  # persists across iterations for the PEDCALIB -> DATA dependency
@@ -967,6 +967,18 @@ def submit_jobs(sequence_list, batch_command: str = "sbatch") -> list:
 
     n_runs = sum(1 for seq in sequence_list if seq.type == "DATA")
     log.info(f"Checking {n_runs} DATA run(s) for job submission.")
+
+    if options.no_submit:
+        # --no-submit: produce job scripts but do not submit or run them.
+        # PEDCALIB scripts are already written by prepare_jobs(); here we just
+        # write the DATA r0->dl1 script for each run, without ever calling
+        # sbatch_submit (which is what would run something for real in test
+        # mode, or submit to SLURM otherwise).
+        log.info("--no-submit: writing job scripts only, nothing will be run or submitted.")
+        for sequence in sequence_list:
+            if sequence.type == "DATA":
+                write_r0_script(sequence)
+        return job_ids
 
     for sequence in sequence_list:
         if sequence.type == "PEDCALIB":
@@ -982,7 +994,6 @@ def submit_jobs(sequence_list, batch_command: str = "sbatch") -> list:
         log.info("No jobs submitted in this call.")
 
     return job_ids
-
 
 # ---------------------------------------------------------------------------
 # squeue / sacct
