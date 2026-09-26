@@ -41,17 +41,16 @@ def remove_provlog():
 
 
 def run_program(*args):
-    result = sp.run(args, stdout=sp.PIPE, stderr=sp.STDOUT, encoding="utf-8", check=True)
+    result = sp.run(args, stdout=sp.PIPE, stderr=sp.STDOUT, encoding="utf-8")
 
     if result.returncode != 0:
-        new_line = "\n"
-        raise ValueError(
-            f"Running {args[0]} failed with return code {result.returncode}, output: "
-            f"{new_line.join(result.stdout)}"
+        raise AssertionError(
+            f"Running {args!r} failed with return code {result.returncode}.\n"
+            f"--- combined stdout/stderr ---\n{result.stdout}\n"
+            f"--- end output ---"
         )
 
     return result
-
 
 @pytest.mark.parametrize("script", ALL_SCRIPTS)
 def test_all_help(script):
