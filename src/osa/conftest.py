@@ -462,11 +462,15 @@ def sequence_file_list(
     drs4_time_calibration_files,
     systematic_correction_files,
     r0_data,
+    r0g_data,              # <-- añadido
     gain_selection_flag_file,
     merged_run_summary,
 ):
     for r0_file in r0_data:
         assert r0_file.exists()
+
+    for r0g_file in r0g_data:   # <-- añadido
+        assert r0g_file.exists()
 
     for file in drs4_time_calibration_files:
         assert file.exists()
@@ -486,7 +490,6 @@ def sequence_file_list(
         running_analysis_dir / "sequence_LST1_01807.py",
         running_analysis_dir / "sequence_LST1_01808.py",
     ]
-
 
 @pytest.fixture(scope="session")
 def txt_file_test(running_analysis_dir):
