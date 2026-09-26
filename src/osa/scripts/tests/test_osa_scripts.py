@@ -202,6 +202,7 @@ def test_autocloser(running_analysis_dir):
         "--date",
         "2020-01-17",
         "--test",
+        "-f",
         "LST1",
     )
     assert os.path.exists(running_analysis_dir)
