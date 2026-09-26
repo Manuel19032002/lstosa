@@ -537,6 +537,8 @@ def _datasequence_base_args() -> list:
         args.append("-v")
     if options.simulate:
         args.append("-s")
+    if options.test:
+        args.append("-t") 
     if options.configfile:
         args.extend(("--config", str(Path(options.configfile).resolve())))
     args.append(f"--input-state={options.input_state}")
@@ -681,6 +683,8 @@ def calibration_sequence_job_template(sequence) -> str:
         commandargs.append("-v")
     if options.simulate:
         commandargs.append("-s")
+    if options.test:
+        commandargs.append("-t") 
     if options.configfile:
         commandargs.extend(("--config", f"{Path(options.configfile).resolve()}"))
     commandargs.extend(
